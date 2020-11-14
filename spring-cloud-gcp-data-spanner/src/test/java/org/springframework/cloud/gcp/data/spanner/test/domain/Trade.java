@@ -16,10 +16,12 @@
 
 package org.springframework.cloud.gcp.data.spanner.test.domain;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
@@ -74,6 +76,10 @@ public class Trade {
 	@Where("disabled = false")
 	private List<SubTrade> subTrades = Collections.emptyList();
 
+	private BigDecimal bigDecimalField;
+
+	private List<BigDecimal> bigDecimals;
+
 	/**
 	 * Partial constructor. Intentionally tests a field that is left null sometimes.
 	 * @param symbol the symbol.
@@ -89,6 +95,10 @@ public class Trade {
 	}
 
 	public static Trade aTrade(String customTraderId, int subTrades) {
+		return aTrade(customTraderId, subTrades, 0);
+	}
+
+	public static Trade aTrade(String customTraderId, int subTrades, int tradeTime) {
 		Trade t = new Trade("ABCD", new ArrayList<>());
 		String tradeId = UUID.randomUUID().toString();
 		String traderId = customTraderId == null ? UUID.randomUUID().toString() : customTraderId;
@@ -99,7 +109,7 @@ public class Trade {
 		t.age = 8;
 		t.action = "BUY";
 		t.traderId = traderId;
-		t.tradeTime = Instant.ofEpochSecond(333);
+		t.tradeTime = Instant.ofEpochSecond(333 + tradeTime);
 		t.tradeDate = Date.from(t.tradeTime);
 		t.tradeLocalDate = LocalDate.of(2015, 1, 1);
 		t.tradeLocalDateTime = LocalDateTime.of(2015, 1, 1, 2, 3, 4, 5);
@@ -114,6 +124,8 @@ public class Trade {
 		for (int i = 1; i <= 5; i++) {
 			t.executionTimes.add(Instant.ofEpochSecond(i));
 		}
+		t.bigDecimalField = new BigDecimal("1111.999");
+		t.bigDecimals = Arrays.asList(new BigDecimal("9999"), new BigDecimal("-0.00099"));
 		return t;
 	}
 
@@ -256,5 +268,21 @@ public class Trade {
 
 	public void setExecutionTimes(List<Instant> executionTimes) {
 		this.executionTimes = executionTimes;
+	}
+
+	public BigDecimal getBigDecimalField() {
+		return bigDecimalField;
+	}
+
+	public void setBigDecimalField(BigDecimal bigDecimalField) {
+		this.bigDecimalField = bigDecimalField;
+	}
+
+	public List<BigDecimal> getBigDecimals() {
+		return bigDecimals;
+	}
+
+	public void setBigDecimals(List<BigDecimal> bigDecimals) {
+		this.bigDecimals = bigDecimals;
 	}
 }

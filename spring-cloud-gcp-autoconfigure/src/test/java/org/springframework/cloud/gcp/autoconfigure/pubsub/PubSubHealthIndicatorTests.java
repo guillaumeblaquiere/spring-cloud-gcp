@@ -1,5 +1,5 @@
 /*
- * Copyright 2019-2019 the original author or authors.
+ * Copyright 2019-2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package org.springframework.cloud.gcp.autoconfigure.pubsub;
 
 import com.google.api.gax.grpc.GrpcStatusCode;
 import com.google.api.gax.rpc.ApiException;
+import io.grpc.Status.Code;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
@@ -45,9 +46,17 @@ public class PubSubHealthIndicatorTests {
 	private PubSubTemplate pubSubTemplate;
 
 	@Test
-	public void healthUp() throws Exception {
+	public void healthUpFor404() throws Exception {
 		when(pubSubTemplate.pull(anyString(), anyInt(), anyBoolean())).thenThrow(new ApiException(
 				new IllegalStateException("Illegal State"), GrpcStatusCode.of(io.grpc.Status.Code.NOT_FOUND), false));
+		PubSubHealthIndicator healthIndicator = new PubSubHealthIndicator(pubSubTemplate);
+		assertThat(healthIndicator.health().getStatus()).isEqualTo(Status.UP);
+	}
+
+	@Test
+	public void healthUpFor403() throws Exception {
+		when(pubSubTemplate.pull(anyString(), anyInt(), anyBoolean())).thenThrow(new ApiException(
+				new IllegalStateException("Illegal State"), GrpcStatusCode.of(Code.PERMISSION_DENIED), false));
 		PubSubHealthIndicator healthIndicator = new PubSubHealthIndicator(pubSubTemplate);
 		assertThat(healthIndicator.health().getStatus()).isEqualTo(Status.UP);
 	}

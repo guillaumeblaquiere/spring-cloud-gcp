@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2018 the original author or authors.
+ * Copyright 2017-2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,6 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * @author João André Martins
  * @author Artem Bilan
+ * @author Øystein Urdahl Hardeng
  */
 public class GcpCloudSqlAutoConfigurationMockTests {
 
@@ -47,7 +48,7 @@ public class GcpCloudSqlAutoConfigurationMockTests {
 			.withUserConfiguration(GcpCloudSqlTestConfiguration.class);
 
 	@Test
-	public void testCloudSqlDataSourceTest() {
+	public void testCloudSqlDataSource() {
 		this.contextRunner.withPropertyValues(
 				"spring.cloud.gcp.sql.instanceConnectionName=tubular-bells:singapore:test-instance",
 				"spring.datasource.password=")
@@ -56,14 +57,40 @@ public class GcpCloudSqlAutoConfigurationMockTests {
 							(HikariDataSource) context.getBean(DataSource.class);
 					CloudSqlJdbcInfoProvider urlProvider =
 							context.getBean(CloudSqlJdbcInfoProvider.class);
-					assertThat(dataSource.getDriverClassName()).matches("com.mysql.jdbc.Driver");
+					assertThat(dataSource.getDriverClassName()).matches("com.mysql.cj.jdbc.Driver");
 					assertThat(urlProvider.getJdbcUrl()).isEqualTo(
 							"jdbc:mysql://google/test-database?"
 									+ "socketFactory=com.google.cloud.sql.mysql.SocketFactory"
 									+ "&cloudSqlInstance=tubular-bells:singapore:test-instance");
 					assertThat(dataSource.getUsername()).matches("root");
 					assertThat(dataSource.getPassword()).isNull();
-					assertThat(urlProvider.getJdbcDriverClass()).matches("com.mysql.jdbc.Driver");
+					assertThat(urlProvider.getJdbcDriverClass()).matches("com.mysql.cj.jdbc.Driver");
+				});
+	}
+
+	@Test
+	public void testCloudSqlSpringDataSourceUrlPropertyOverride() {
+		this.contextRunner.withPropertyValues(
+				"spring.cloud.gcp.sql.instanceConnectionName=tubular-bells:singapore:test-instance",
+				"spring.datasource.password=",
+				"spring.datasource.url=jdbc:h2:mem:none;MODE=MySQL;DB_CLOSE_ON_EXIT=FALSE")
+				.run((context) -> {
+					HikariDataSource dataSource =
+							(HikariDataSource) context.getBean(DataSource.class);
+					CloudSqlJdbcInfoProvider urlProvider =
+							context.getBean(CloudSqlJdbcInfoProvider.class);
+					assertThat(dataSource.getDriverClassName()).matches("com.mysql.cj.jdbc.Driver");
+					assertThat(urlProvider.getJdbcUrl()).isEqualTo(
+							"jdbc:mysql://google/test-database?"
+									+ "socketFactory=com.google.cloud.sql.mysql.SocketFactory"
+									+ "&cloudSqlInstance=tubular-bells:singapore:test-instance");
+					assertThat(dataSource.getUsername()).matches("root");
+					assertThat(dataSource.getPassword()).isNull();
+					assertThat(urlProvider.getJdbcDriverClass()).matches("com.mysql.cj.jdbc.Driver");
+					assertThat(context.getEnvironment().getProperty("spring.datasource.url"))
+							.isEqualTo("jdbc:mysql://google/test-database?"
+									+ "socketFactory=com.google.cloud.sql.mysql.SocketFactory"
+									+ "&cloudSqlInstance=tubular-bells:singapore:test-instance");
 				});
 	}
 
@@ -78,14 +105,14 @@ public class GcpCloudSqlAutoConfigurationMockTests {
 							(HikariDataSource) context.getBean(DataSource.class);
 					CloudSqlJdbcInfoProvider urlProvider =
 							context.getBean(CloudSqlJdbcInfoProvider.class);
-					assertThat(dataSource.getDriverClassName()).matches("com.mysql.jdbc.Driver");
+					assertThat(dataSource.getDriverClassName()).matches("com.mysql.cj.jdbc.Driver");
 					assertThat(urlProvider.getJdbcUrl()).isEqualTo(
 							"jdbc:mysql://google/test-database?"
 									+ "socketFactory=com.google.cloud.sql.mysql.SocketFactory"
 									+ "&cloudSqlInstance=tubular-bells:singapore:test-instance");
 					assertThat(dataSource.getUsername()).matches("root");
 					assertThat(dataSource.getPassword()).isNull();
-					assertThat(urlProvider.getJdbcDriverClass()).matches("com.mysql.jdbc.Driver");
+					assertThat(urlProvider.getJdbcDriverClass()).matches("com.mysql.cj.jdbc.Driver");
 				});
 	}
 
@@ -103,9 +130,9 @@ public class GcpCloudSqlAutoConfigurationMockTests {
 					CloudSqlJdbcInfoProvider urlProvider =
 							context.getBean(CloudSqlJdbcInfoProvider.class);
 					assertThat(urlProvider.getJdbcDriverClass())
-							.matches("com.mysql.jdbc.Driver");
+							.matches("com.mysql.cj.jdbc.Driver");
 					assertThat(dataSource.getDriverClassName())
-							.matches("com.mysql.jdbc.Driver");
+							.matches("com.mysql.cj.jdbc.Driver");
 					assertThat(urlProvider.getJdbcUrl()).isEqualTo(
 							"jdbc:mysql://google/test-database?"
 									+ "socketFactory=com.google.cloud.sql.mysql.SocketFactory"
@@ -131,7 +158,7 @@ public class GcpCloudSqlAutoConfigurationMockTests {
 									+ "&cloudSqlInstance=proj:reg:test-instance");
 					assertThat(dataSource.getUsername()).matches("watchmaker");
 					assertThat(dataSource.getPassword()).matches("pass");
-					assertThat(urlProvider.getJdbcDriverClass()).matches("com.mysql.jdbc.Driver");
+					assertThat(urlProvider.getJdbcDriverClass()).matches("com.mysql.cj.jdbc.Driver");
 				});
 	}
 
@@ -150,7 +177,7 @@ public class GcpCloudSqlAutoConfigurationMockTests {
 							"jdbc:mysql://google/test-database?"
 									+ "socketFactory=com.google.cloud.sql.mysql.SocketFactory"
 									+ "&cloudSqlInstance=proj:reg:test-instance");
-					assertThat(urlProvider.getJdbcDriverClass()).matches("com.mysql.jdbc.Driver");
+					assertThat(urlProvider.getJdbcDriverClass()).matches("com.mysql.cj.jdbc.Driver");
 					assertThat(dataSource.getMaximumPoolSize()).isEqualTo(19);
 					assertThat(dataSource.getConnectionTestQuery()).matches("select 1");
 				});
@@ -167,7 +194,7 @@ public class GcpCloudSqlAutoConfigurationMockTests {
 							"jdbc:mysql://google/test-database?"
 									+ "socketFactory=com.google.cloud.sql.mysql.SocketFactory"
 									+ "&cloudSqlInstance=world:asia:japan");
-					assertThat(urlProvider.getJdbcDriverClass()).matches("com.mysql.jdbc.Driver");
+					assertThat(urlProvider.getJdbcDriverClass()).matches("com.mysql.cj.jdbc.Driver");
 				});
 	}
 
@@ -202,4 +229,16 @@ public class GcpCloudSqlAutoConfigurationMockTests {
 				});
 	}
 
+	@Test
+	public void testIpTypes() {
+		this.contextRunner.withPropertyValues(
+				"spring.cloud.gcp.sql.instanceConnectionName=world:asia:japan",
+				"spring.cloud.gcp.sql.ip-types=PRIVATE")
+				.run((context) -> {
+					DataSourceProperties dataSourceProperties =
+							context.getBean(DataSourceProperties.class);
+					assertThat(dataSourceProperties.getUrl()).contains(
+							"&ipTypes=PRIVATE");
+				});
+	}
 }

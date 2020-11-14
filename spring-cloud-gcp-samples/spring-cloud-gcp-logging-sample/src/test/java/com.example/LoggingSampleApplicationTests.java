@@ -22,11 +22,12 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
+import com.google.api.client.util.DateTime;
 import com.google.api.gax.paging.Page;
 import com.google.cloud.logging.LogEntry;
 import com.google.cloud.logging.Logging;
 import com.google.cloud.logging.LoggingOptions;
-import com.google.cloud.logging.Payload.StringPayload;
+import com.google.cloud.logging.Payload.JsonPayload;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -58,7 +59,7 @@ import static org.junit.Assume.assumeThat;
 @SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT, classes = { Application.class })
 public class LoggingSampleApplicationTests {
 
-	private static final String LOG_FILTER_FORMAT = "trace:%s";
+	private static final String LOG_FILTER_FORMAT = "trace:%s AND logName=projects/%s/logs/spring.log AND timestamp>=\"%s\"";
 
 	@Autowired
 	private GcpProjectIdProvider projectIdProvider;
@@ -86,6 +87,7 @@ public class LoggingSampleApplicationTests {
 
 	@Test
 	public void testLogRecordedInStackDriver() {
+		DateTime startDateTime = new DateTime(System.currentTimeMillis());
 		String url = String.format("http://localhost:%s/log", this.port);
 		String traceHeader = "gcp-logging-test-" + Instant.now().toEpochMilli();
 
@@ -95,9 +97,10 @@ public class LoggingSampleApplicationTests {
 				url, HttpMethod.GET, new HttpEntity<>(headers), String.class);
 		assertThat(responseEntity.getStatusCode().is2xxSuccessful()).isTrue();
 
-		String logFilter = String.format(LOG_FILTER_FORMAT, traceHeader);
+		String logFilter = String.format(LOG_FILTER_FORMAT, traceHeader,
+				this.projectIdProvider.getProjectId(), startDateTime.toStringRfc3339());
 
-		await().atMost(60, TimeUnit.SECONDS)
+		await().atMost(4, TimeUnit.MINUTES)
 				.pollInterval(2, TimeUnit.SECONDS)
 				.untilAsserted(() -> {
 					Page<LogEntry> logEntryPage = this.logClient.listLogEntries(
@@ -108,7 +111,8 @@ public class LoggingSampleApplicationTests {
 					});
 
 					List<String> logContents = logEntries.stream()
-							.map((logEntry) -> ((StringPayload) logEntry.getPayload()).getData())
+							.map((logEntry) -> (String) ((JsonPayload) logEntry.getPayload())
+									.getDataAsMap().get("message"))
 							.collect(Collectors.toList());
 
 					assertThat(logContents).containsExactlyInAnyOrder(

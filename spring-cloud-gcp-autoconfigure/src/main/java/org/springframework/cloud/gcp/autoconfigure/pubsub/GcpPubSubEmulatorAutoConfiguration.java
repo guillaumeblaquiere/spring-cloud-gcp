@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2018 the original author or authors.
+ * Copyright 2017-2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,8 @@
  */
 
 package org.springframework.cloud.gcp.autoconfigure.pubsub;
+
+import javax.annotation.PreDestroy;
 
 import com.google.api.gax.grpc.GrpcTransportChannel;
 import com.google.api.gax.rpc.FixedTransportChannelProvider;
@@ -34,20 +36,29 @@ import org.springframework.context.annotation.Configuration;
  * to a running pub/sub emulator.
  *
  * @author Andreas Berger
+ * @author Mike Eltsufin
  */
-@Configuration
+@Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty(prefix = "spring.cloud.gcp.pubsub", name = "emulator-host")
 @AutoConfigureBefore(GcpPubSubAutoConfiguration.class)
 @EnableConfigurationProperties(GcpPubSubProperties.class)
 public class GcpPubSubEmulatorAutoConfiguration {
+	private ManagedChannel channel;
 
-	@Bean
-	@ConditionalOnMissingBean
+	@Bean(name = {"subscriberTransportChannelProvider", "publisherTransportChannelProvider"})
+	@ConditionalOnMissingBean(name = {"subscriberTransportChannelProvider", "publisherTransportChannelProvider"})
 	public TransportChannelProvider transportChannelProvider(GcpPubSubProperties gcpPubSubProperties) {
-		ManagedChannel channel = ManagedChannelBuilder
+		this.channel = ManagedChannelBuilder
 				.forTarget("dns:///" + gcpPubSubProperties.getEmulatorHost())
 				.usePlaintext()
 				.build();
-		return FixedTransportChannelProvider.create(GrpcTransportChannel.create(channel));
+		return FixedTransportChannelProvider.create(GrpcTransportChannel.create(this.channel));
+	}
+
+	@PreDestroy
+	public void closeManagedChannel() {
+		if (this.channel != null) {
+			this.channel.shutdown();
+		}
 	}
 }

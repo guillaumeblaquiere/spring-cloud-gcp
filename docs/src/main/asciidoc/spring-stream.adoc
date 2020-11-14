@@ -19,7 +19,7 @@ Gradle coordinates:
 [source,subs="normal"]
 ----
 dependencies {
-    compile group: 'org.springframework.cloud', name: 'spring-cloud-gcp-pubsub-stream-binder'
+    implementation("org.springframework.cloud:spring-cloud-gcp-pubsub-stream-binder")
 }
 ----
 
@@ -39,6 +39,10 @@ Starting with version 1.1, these and other binder properties can be configured g
 If you are using Pub/Sub auto-configuration from the Spring Cloud GCP Pub/Sub Starter, you should refer to the <<pubsub-configuration,configuration>> section for other Pub/Sub parameters.
 
 NOTE: To use this binder with a https://cloud.google.com/pubsub/docs/emulator[running emulator], configure its host and port via `spring.cloud.gcp.pubsub.emulator-host`.
+
+==== Producer Synchronous Sending Configuration
+By default, this binder will send messages to Cloud Pub/Sub asynchronously.
+If synchronous sending is preferred (for example, to allow propagating errors back to the sender), set `spring.cloud.stream.gcp.pubsub.default.producer.sync` property to `true`.
 
 ==== Producer Destination Configuration
 

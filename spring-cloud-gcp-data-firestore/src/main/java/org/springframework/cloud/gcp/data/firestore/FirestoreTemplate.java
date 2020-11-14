@@ -25,10 +25,12 @@ import com.google.firestore.v1.Document;
 import com.google.firestore.v1.DocumentMask;
 import com.google.firestore.v1.FirestoreGrpc.FirestoreStub;
 import com.google.firestore.v1.GetDocumentRequest;
+import com.google.firestore.v1.Precondition;
 import com.google.firestore.v1.RunQueryRequest;
 import com.google.firestore.v1.RunQueryResponse;
 import com.google.firestore.v1.StructuredQuery;
 import com.google.firestore.v1.Write;
+import com.google.firestore.v1.Write.Builder;
 import com.google.firestore.v1.WriteRequest;
 import com.google.firestore.v1.WriteResponse;
 import io.grpc.stub.StreamObserver;
@@ -76,24 +78,40 @@ public class FirestoreTemplate implements FirestoreReactiveOperations {
 
 	private final String databasePath;
 
-	private final FirestoreMappingContext mappingContext = new FirestoreMappingContext();
+	private final FirestoreMappingContext mappingContext;
 
 	private Duration writeBufferTimeout = Duration.ofMillis(500);
 
 	private int writeBufferSize = FIRESTORE_WRITE_MAX_SIZE;
 
+	private boolean usingStreamTokens = true;
+
 	/**
 	 * Constructor for FirestoreTemplate.
 	 * @param firestore Firestore gRPC stub
 	 * @param parent the parent resource. For example:
-	 *     projects/{project_id}/databases/{database_id}/documents or
+	 *     projects/{project_id}/databases/{database_id}/documents
 	 * @param classMapper a {@link FirestoreClassMapper} used for conversion
+	 * @param mappingContext Mapping Context
 	 */
-	public FirestoreTemplate(FirestoreStub firestore, String parent, FirestoreClassMapper classMapper) {
+	public FirestoreTemplate(FirestoreStub firestore, String parent, FirestoreClassMapper classMapper,
+			FirestoreMappingContext mappingContext) {
 		this.firestore = firestore;
 		this.parent = parent;
 		this.databasePath = Util.extractDatabasePath(parent);
 		this.classMapper = classMapper;
+		this.mappingContext = mappingContext;
+	}
+
+	@Override
+	public <T> FirestoreReactiveOperations withParent(T parent) {
+		FirestoreTemplate firestoreTemplate =
+						new FirestoreTemplate(this.firestore, buildResourceName(parent), this.classMapper, this.mappingContext);
+		firestoreTemplate.setUsingStreamTokens(this.usingStreamTokens);
+		firestoreTemplate.setWriteBufferSize(this.writeBufferSize);
+		firestoreTemplate.setWriteBufferTimeout(this.writeBufferTimeout);
+
+		return firestoreTemplate;
 	}
 
 	/**
@@ -124,6 +142,25 @@ public class FirestoreTemplate implements FirestoreReactiveOperations {
 
 	public int getWriteBufferSize() {
 		return this.writeBufferSize;
+	}
+
+	/**
+	 * Sets whether the {@link FirestoreTemplate} should attach stream resume tokens to write
+	 * requests.
+	 *
+	 * <p>Note that this should always be set to true unless you are using the
+	 * Firestore emulator in which case it should be set to false because the emulator
+	 * does not support using resume tokens.
+	 *
+	 * @param usingStreamTokens whether the template should use stream tokens
+   * @since 1.2.3
+	 */
+	public void setUsingStreamTokens(boolean usingStreamTokens) {
+		this.usingStreamTokens = usingStreamTokens;
+	}
+
+	public boolean isUsingStreamTokens() {
+		return usingStreamTokens;
 	}
 
 	@Override
@@ -261,13 +298,17 @@ public class FirestoreTemplate implements FirestoreReactiveOperations {
 		});
 	}
 
-	private WriteRequest buildDeleteRequest(
+	// Visible for Testing
+	WriteRequest buildDeleteRequest(
 			List<String> documentIds, WriteResponse writeResponse) {
 
-		WriteRequest.Builder writeRequestBuilder =
-				WriteRequest.newBuilder()
-						.setStreamId(writeResponse.getStreamId())
-						.setStreamToken(writeResponse.getStreamToken());
+		WriteRequest.Builder writeRequestBuilder = WriteRequest.newBuilder();
+
+		if (isUsingStreamTokens()) {
+			writeRequestBuilder
+					.setStreamId(writeResponse.getStreamId())
+					.setStreamToken(writeResponse.getStreamToken());
+		}
 
 		documentIds.stream().map(this::createDeleteWrite).forEach(writeRequestBuilder::addWrites);
 
@@ -287,20 +328,20 @@ public class FirestoreTemplate implements FirestoreReactiveOperations {
 		return Mono.subscriberContext().flatMapMany(ctx -> {
 			FirestorePersistentEntity<?> persistentEntity = this.mappingContext.getPersistentEntity(clazz);
 
-			StructuredQuery.Builder builder = queryBuilder != null ? queryBuilder : StructuredQuery.newBuilder();
+			StructuredQuery.Builder builder = queryBuilder != null ? queryBuilder.clone() : StructuredQuery.newBuilder();
 			builder.addFrom(StructuredQuery.CollectionSelector.newBuilder()
 					.setCollectionId(persistentEntity.collectionName()).build());
 			if (projection != null) {
 				builder.setSelect(projection);
 			}
-			RunQueryRequest.Builder buider = RunQueryRequest.newBuilder()
+			RunQueryRequest.Builder requestBuilder = RunQueryRequest.newBuilder()
 					.setParent(this.parent)
 					.setStructuredQuery(builder.build());
 
-			doIfTransaction(ctx, resourceHolder -> buider.setTransaction(resourceHolder.getTransactionId()));
+			doIfTransaction(ctx, resourceHolder -> requestBuilder.setTransaction(resourceHolder.getTransactionId()));
 
 			return ObservableReactiveUtil
-					.<RunQueryResponse>streamingCall(obs -> this.firestore.runQuery(buider.build(), obs))
+					.<RunQueryResponse>streamingCall(obs -> this.firestore.runQuery(requestBuilder.build(), obs))
 					.filter(RunQueryResponse::hasDocument)
 					.map(RunQueryResponse::getDocument);
 		});
@@ -345,11 +386,15 @@ public class FirestoreTemplate implements FirestoreReactiveOperations {
 		return requestStreamObserver;
 	}
 
-	private <T> WriteRequest buildWriteRequest(List<T> entityList, WriteResponse writeResponse) {
-		WriteRequest.Builder writeRequestBuilder =
-				WriteRequest.newBuilder()
-						.setStreamId(writeResponse.getStreamId())
-						.setStreamToken(writeResponse.getStreamToken());
+	// Visible for Testing
+	<T> WriteRequest buildWriteRequest(List<T> entityList, WriteResponse writeResponse) {
+		WriteRequest.Builder writeRequestBuilder = WriteRequest.newBuilder();
+
+		if (isUsingStreamTokens()) {
+			writeRequestBuilder
+					.setStreamId(writeResponse.getStreamId())
+					.setStreamToken(writeResponse.getStreamToken());
+		}
 
 		entityList.stream().map(this::createUpdateWrite).forEach(writeRequestBuilder::addWrites);
 
@@ -357,11 +402,13 @@ public class FirestoreTemplate implements FirestoreReactiveOperations {
 	}
 
 	private <T> Write createUpdateWrite(T entity) {
-		String documentResourceName = buildResourceName(entity);
-		Document document = getClassMapper().entityToDocument(entity, documentResourceName);
-		return Write.newBuilder()
-				.setUpdate(document)
-				.build();
+		Builder builder = Write.newBuilder();
+		if (getIdValue(entity) == null) {
+			builder.setCurrentDocument(Precondition.newBuilder().setExists(false).build());
+		}
+		String resourceName = buildResourceName(entity);
+		Document document = getClassMapper().entityToDocument(entity, resourceName);
+		return builder.setUpdate(document).build();
 	}
 
 	private <T> String buildResourceName(T entity) {
@@ -369,7 +416,11 @@ public class FirestoreTemplate implements FirestoreReactiveOperations {
 				this.mappingContext.getPersistentEntity(entity.getClass());
 		FirestorePersistentProperty idProperty = persistentEntity.getIdPropertyOrFail();
 		Object idVal = persistentEntity.getPropertyAccessor(entity).getProperty(idProperty);
-
+		if (idVal == null) {
+			//TODO: replace with com.google.cloud.firestore.Internal.autoId() when it is available
+			idVal = AutoId.autoId();
+			persistentEntity.getPropertyAccessor(entity).setProperty(idProperty, idVal);
+		}
 		return buildResourceName(persistentEntity, idVal.toString());
 	}
 
@@ -377,11 +428,12 @@ public class FirestoreTemplate implements FirestoreReactiveOperations {
 		return this.parent + "/" + persistentEntity.collectionName() + "/" + s;
 	}
 
-	private String getIdValue(Object entity, FirestorePersistentEntity persistentEntity) {
+	private Object getIdValue(Object entity) {
+		FirestorePersistentEntity<?> persistentEntity =
+						this.mappingContext.getPersistentEntity(entity.getClass());
 		FirestorePersistentProperty idProperty = persistentEntity.getIdPropertyOrFail();
-		Object idVal = persistentEntity.getPropertyAccessor(entity).getProperty(idProperty);
 
-		return idVal.toString();
+		return persistentEntity.getPropertyAccessor(entity).getProperty(idProperty);
 	}
 
 	public FirestoreClassMapper getClassMapper() {

@@ -16,8 +16,6 @@
 
 package org.springframework.cloud.gcp.data.firestore.util;
 
-import org.apache.commons.lang3.StringUtils;
-
 /**
  * @author Dmitry Solomakha
  */
@@ -27,7 +25,20 @@ public final class Util {
 	}
 
 	public static String extractDatabasePath(String parent) {
-		return parent.substring(0, StringUtils.ordinalIndexOf(parent, "/", 4));
+		//the parent looks like this: projects/{project_id}/databases/{database_id}/...
+		//and the database path is the first 4 segments, separated by /
+		StringBuilder sb = new StringBuilder();
+		int count = 0;
+		for (int i = 0; i < parent.length(); i++) {
+			char c = parent.charAt(i);
+			if (c == '/') {
+				count++;
+			}
+			if (count == 4) {
+				break;
+			}
+			sb.append(c);
+		}
+		return sb.toString();
 	}
-
 }

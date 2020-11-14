@@ -16,6 +16,7 @@
 
 package org.springframework.cloud.gcp.secretmanager.it;
 
+import org.awaitility.Duration;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -27,7 +28,14 @@ import org.springframework.test.context.junit4.SpringRunner;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assumptions.assumeThat;
+import static org.awaitility.Awaitility.await;
 
+/**
+ * Integration tests for {@link SecretManagerTemplate}.
+ *
+ * @author Daniel Zou
+ * @author Mike Eltsufin
+ */
 @RunWith(SpringRunner.class)
 @ContextConfiguration(classes = { SecretManagerTestConfiguration.class })
 public class SecretManagerTemplateIntegrationTests {
@@ -47,22 +55,35 @@ public class SecretManagerTemplateIntegrationTests {
 	public void testReadWriteSecrets() {
 		secretManagerTemplate.createSecret("test-secret-1234", "1234");
 
-		String secretString = secretManagerTemplate.getSecretString("test-secret-1234");
-		assertThat(secretString).isEqualTo("1234");
+		await().atMost(Duration.FIVE_SECONDS).untilAsserted(() -> {
+			String secretString = secretManagerTemplate.getSecretString("test-secret-1234");
+			assertThat(secretString).isEqualTo("1234");
 
-		byte[] secretBytes = secretManagerTemplate.getSecretBytes("test-secret-1234");
-		assertThat(secretBytes).isEqualTo("1234".getBytes());
+			byte[] secretBytes = secretManagerTemplate.getSecretBytes("test-secret-1234");
+			assertThat(secretBytes).isEqualTo("1234".getBytes());
+		});
+	}
+
+	@Test(expected = com.google.api.gax.rpc.NotFoundException.class)
+	public void testReadMissingSecret() {
+		secretManagerTemplate.getSecretBytes("test-NON-EXISTING-secret");
 	}
 
 	@Test
 	public void testUpdateSecrets() {
 		secretManagerTemplate.createSecret("test-update-secret", "5555");
+		await().atMost(Duration.FIVE_SECONDS).untilAsserted(() -> {
+			String secretString = secretManagerTemplate.getSecretString("test-update-secret");
+			assertThat(secretString).isEqualTo("5555");
+		});
+
 		secretManagerTemplate.createSecret("test-update-secret", "6666");
+		await().atMost(Duration.TEN_SECONDS).untilAsserted(() -> {
+			String secretString = secretManagerTemplate.getSecretString("test-update-secret");
+			assertThat(secretString).isEqualTo("6666");
 
-		String secretString = secretManagerTemplate.getSecretString("test-update-secret");
-		assertThat(secretString).isEqualTo("6666");
-
-		byte[] secretBytes = secretManagerTemplate.getSecretBytes("test-update-secret");
-		assertThat(secretBytes).isEqualTo("6666".getBytes());
+			byte[] secretBytes = secretManagerTemplate.getSecretBytes("test-update-secret");
+			assertThat(secretBytes).isEqualTo("6666".getBytes());
+		});
 	}
 }

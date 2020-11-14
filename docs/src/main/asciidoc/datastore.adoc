@@ -22,11 +22,11 @@ Gradle coordinates:
 [source]
 ----
 dependencies {
-    compile group: 'org.springframework.cloud', name: 'spring-cloud-gcp-data-datastore'
+    implementation("org.springframework.cloud:spring-cloud-gcp-data-datastore")
 }
 ----
 
-We provide a link:../spring-cloud-gcp-starters/spring-cloud-gcp-starter-data-datastore[Spring Boot Starter for Spring Data Datastore], with which you can use our recommended auto-configuration setup.
+We provide a link:https://github.com/spring-cloud/spring-cloud-gcp/tree/master/spring-cloud-gcp-starters/spring-cloud-gcp-starter-data-datastore[Spring Boot Starter for Spring Data Datastore], with which you can use our recommended auto-configuration setup.
 To use the starter, see the coordinates below.
 
 
@@ -45,7 +45,7 @@ Gradle:
 [source,subs="normal"]
 ----
 dependencies {
-    compile group: 'org.springframework.cloud', name: 'spring-cloud-gcp-starter-data-datastore'
+    implementation("org.springframework.cloud:spring-cloud-gcp-starter-data-datastore")
 }
 ----
 
@@ -59,7 +59,7 @@ To setup Spring Data Cloud Datastore, you have to configure the following:
 
 ==== Cloud Datastore settings
 
-You can the use link:../spring-cloud-gcp-starters/spring-cloud-gcp-starter-data-datastore[Spring Boot Starter for Spring Data Datastore] to autoconfigure Google Cloud Datastore in your Spring application.
+You can use the link:https://github.com/spring-cloud/spring-cloud-gcp/tree/master/spring-cloud-gcp-starters/spring-cloud-gcp-starter-data-datastore[Spring Boot Starter for Spring Data Datastore] to autoconfigure Google Cloud Datastore in your Spring application.
 It contains all the necessary setup that makes it easy to authenticate with your Google Cloud project.
 The following configuration options are available:
 
@@ -753,8 +753,8 @@ List<Trader> traders = this.datastoreTemplate.findAllById(Arrays.asList("trader1
 List<Trader> allTraders = this.datastoreTemplate.findAll(Trader.class);
 ----
 
-Cloud Datastore executes key-based reads with strong consistency, but queries with eventual consistency.
-In the example above the first two reads utilize keys, while the third is executed using a query based on the corresponding Kind of `Trader`.
+Cloud Datastore uses key-based reads with strong consistency, but queries with eventual consistency.
+In the example above the first two reads utilize keys, while the third is run by using a query based on the corresponding Kind of `Trader`.
 
 
 ===== Indexes
@@ -951,6 +951,8 @@ public interface TradeRepository extends DatastoreRepository<Trade, String[]> {
 
 In the example above the {spring-data-commons-ref}/#repositories.query-methods[query methods] in `TradeRepository` are generated based on the name of the methods using the {spring-data-commons-ref}#repositories.query-methods.query-creation[Spring Data Query creation naming convention].
 
+NOTE: You can refer to nested fields using https://docs.spring.io/spring-data/jpa/docs/current/reference/html/#repositories.query-methods.query-property-expressions[Spring Data JPA Property Expressions]
+
 Cloud Datastore only supports filter components joined by AND, and the following operations:
 
 * `equals`
@@ -965,7 +967,7 @@ Because of Cloud Datastore's requirement that explicitly selected fields must al
 
 Delete queries are also supported.
 For example, query methods such as `deleteByAction` or `removeByAction` delete entities found by `findByAction`.
-Delete queries are executed as separate read and delete operations instead of as a single transaction because Cloud Datastore cannot query in transactions unless ancestors for queries are specified.
+Delete queries are run as separate read and delete operations instead of as a single transaction because Cloud Datastore cannot query in transactions unless ancestors for queries are specified.
 As a result, `removeBy` and `deleteBy` name-convention query methods cannot be used inside transactions via either `performInTransaction` or `@Transactional` annotation.
 
 Delete queries can have the following return types:
@@ -980,8 +982,17 @@ See https://docs.spring.io/spring-data/data-commons/docs/current/reference/html/
 For returning multiple items in a repository method, we support Java collections as well as `org.springframework.data.domain.Page` and `org.springframework.data.domain.Slice`.
 If a method's return type is `org.springframework.data.domain.Page`, the returned object will include current page, total number of results and total number of pages.
 
-NOTE: Methods that return `Page` execute an additional query to compute total number of pages.
-Methods that return `Slice`, on the other hand, don't execute any additional queries and therefore are much more efficient.
+NOTE: Methods that return `Page` run an additional query to compute total number of pages.
+Methods that return `Slice`, on the other hand, do not run any additional queries and, therefore, are much more efficient.
+
+==== Empty result handling in repository methods
+Java `java.util.Optional` can be used to indicate the potential absence of a return value.
+
+Alternatively, query methods can return the result without a wrapper.
+In that case the absence of a query result is indicated by returning `null`.
+Repository methods returning collections are guaranteed never to return `null` but rather the corresponding empty collection.
+
+NOTE: You can enable nullability checks. For more details please see https://docs.spring.io/spring/docs/current/spring-framework-reference/core.html#null-safety[Spring Framework’s nullability docs].
 
 ==== Query by example
 Query by Example is an alternative querying technique.
@@ -1237,12 +1248,12 @@ Spring Data Cloud Datastore publishes events extending the Spring Framework's `A
 [options="header"]
 |===
 | Type | Description | Contents
-| `AfterFindByKeyEvent`|Published immediately after read by-key operations are executed by `DatastoreTemplate`| The entities read from Cloud Datastore and the original keys in the request.
-| `AfterQueryEvent`|Published immediately after read byquery operations are executed by `DatastoreTemplate`| The entities read from Cloud Datastore and the original query in the request.
-| `BeforeSaveEvent`|Published immediately before save operations are executed by `DatastoreTemplate`| The entities to be sent to Cloud Datastore and the original Java objects being saved.
-| `AfterSaveEvent`|Published immediately after save operations are executed by `DatastoreTemplate`| The entities sent to Cloud Datastore  and the original Java objects being saved.
-| `BeforeDeleteEvent`|Published immediately before delete operations are executed by `DatastoreTemplate`| The keys to be sent to Cloud Datastore. The target entities, ID values, or entity type originally specified for the delete operation.
-| `AfterDeleteEvent`|Published immediately after delete operations are executed by `DatastoreTemplate`| The keys sent to Cloud Datastore. The target entities, ID values, or entity type originally specified for the delete operation.
+| `AfterFindByKeyEvent`|Published immediately after read by-key operations are run by `DatastoreTemplate`| The entities read from Cloud Datastore and the original keys in the request.
+| `AfterQueryEvent`|Published immediately after read byquery operations are run by `DatastoreTemplate`| The entities read from Cloud Datastore and the original query in the request.
+| `BeforeSaveEvent`|Published immediately before save operations are run by `DatastoreTemplate`| The entities to be sent to Cloud Datastore and the original Java objects being saved.
+| `AfterSaveEvent`|Published immediately after save operations are run by `DatastoreTemplate`| The entities sent to Cloud Datastore  and the original Java objects being saved.
+| `BeforeDeleteEvent`|Published immediately before delete operations are run by `DatastoreTemplate`| The keys to be sent to Cloud Datastore. The target entities, ID values, or entity type originally specified for the delete operation.
+| `AfterDeleteEvent`|Published immediately after delete operations are run by `DatastoreTemplate`| The keys sent to Cloud Datastore. The target entities, ID values, or entity type originally specified for the delete operation.
 |===
 
 === Auditing

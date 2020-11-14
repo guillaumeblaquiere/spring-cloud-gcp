@@ -18,6 +18,8 @@ package org.springframework.cloud.gcp.autoconfigure.sql;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 
 import javax.sql.DataSource;
 
@@ -44,6 +46,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
+import org.springframework.core.env.ConfigurableEnvironment;
+import org.springframework.core.env.MapPropertySource;
 import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseType;
 import org.springframework.util.StringUtils;
 
@@ -57,7 +61,7 @@ import org.springframework.util.StringUtils;
  * @author Chengyuan Zhao
  * @author Eddú Meléndez
  */
-@Configuration
+@Configuration(proxyBeanMethods = false)
 @ConditionalOnClass({ DataSource.class, EmbeddedDatabaseType.class, CredentialFactory.class })
 @ConditionalOnProperty(
 		name = "spring.cloud.gcp.sql.enabled", havingValue = "true", matchIfMissing = true)
@@ -67,7 +71,7 @@ import org.springframework.util.StringUtils;
 		JndiDataSourceAutoConfiguration.class,
 		XADataSourceAutoConfiguration.class })
 @AutoConfigureAfter(GcpContextAutoConfiguration.class)
-public abstract class GcpCloudSqlAutoConfiguration { //NOSONAR squid:S1610 must be a class for Spring
+public class GcpCloudSqlAutoConfiguration { //NOSONAR squid:S1610 must be a class for Spring
 
 	private static final Log LOGGER = LogFactory.getLog(GcpCloudSqlAutoConfiguration.class);
 
@@ -77,7 +81,7 @@ public abstract class GcpCloudSqlAutoConfiguration { //NOSONAR squid:S1610 must 
 	 * based on the {@link DatabaseType#MYSQL}.
 	 */
 	@ConditionalOnClass({ com.google.cloud.sql.mysql.SocketFactory.class,
-			com.mysql.jdbc.Driver.class })
+			com.mysql.cj.jdbc.Driver.class })
 	@ConditionalOnMissingBean(CloudSqlJdbcInfoProvider.class)
 	static class MySqlJdbcInfoProviderConfiguration {
 
@@ -130,7 +134,7 @@ public abstract class GcpCloudSqlAutoConfiguration { //NOSONAR squid:S1610 must 
 	 * The Configuration to populated {@link DataSourceProperties} bean
 	 * based on the cloud-specific properties.
 	 */
-	@Configuration
+	@Configuration(proxyBeanMethods = false)
 	@Import({GcpCloudSqlAutoConfiguration.MySqlJdbcInfoProviderConfiguration.class,
 			GcpCloudSqlAutoConfiguration.PostgreSqlJdbcInfoProviderConfiguration.class })
 	static class CloudSqlDataSourcePropertiesConfiguration {
@@ -142,7 +146,8 @@ public abstract class GcpCloudSqlAutoConfiguration { //NOSONAR squid:S1610 must 
 				GcpCloudSqlProperties gcpCloudSqlProperties,
 				DataSourceProperties properties,
 				GcpProperties gcpProperties,
-				CloudSqlJdbcInfoProvider cloudSqlJdbcInfoProvider) {
+				CloudSqlJdbcInfoProvider cloudSqlJdbcInfoProvider,
+				ConfigurableEnvironment configurableEnvironment) {
 
 			if (StringUtils.isEmpty(properties.getUsername())) {
 				properties.setUsername("root");
@@ -162,6 +167,12 @@ public abstract class GcpCloudSqlAutoConfiguration { //NOSONAR squid:S1610 must 
 						"spring.cloud.gcp.sql.instance-connection-name.");
 			}
 			properties.setUrl(cloudSqlJdbcInfoProvider.getJdbcUrl());
+
+			// also set the spring.datasource.url property in the environment
+			Map<String, Object> myMap = new HashMap<>();
+			myMap.put("spring.datasource.url", cloudSqlJdbcInfoProvider.getJdbcUrl());
+			configurableEnvironment.getPropertySources()
+					.addFirst(new MapPropertySource("CLOUD_SQL_DATA_SOURCE_URL", myMap));
 
 			if (gcpCloudSqlProperties.getCredentials().getEncodedKey() != null) {
 				setCredentialsEncodedKeyProperty(gcpCloudSqlProperties);

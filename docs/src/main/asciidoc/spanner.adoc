@@ -20,7 +20,7 @@ Gradle coordinates:
 [source]
 ----
 dependencies {
-    compile group: 'org.springframework.cloud', name: 'spring-cloud-gcp-data-spanner'
+    implementation("org.springframework.cloud:spring-cloud-gcp-data-spanner")
 }
 ----
 
@@ -43,7 +43,7 @@ Gradle:
 [source,subs="normal"]
 ----
 dependencies {
-    compile group: 'org.springframework.cloud', name: 'spring-cloud-gcp-starter-data-spanner'
+    implementation("org.springframework.cloud:spring-cloud-gcp-starter-data-spanner")
 }
 ----
 
@@ -88,6 +88,8 @@ The schema for the tables will be "ON DELETE NO ACTION" if `false`. | No | `true
 | `spring.cloud.gcp.spanner.writeSessionsFraction` | Fraction of sessions to be kept prepared for write transactions | No | 0.2 - Determined by Cloud Spanner client library
 | `spring.cloud.gcp.spanner.keepAliveIntervalMinutes` | How long to keep idle sessions alive | No | 30 - Determined by Cloud Spanner client library
 | `spring.cloud.gcp.spanner.failIfPoolExhausted` |  If all sessions are in use, fail the request by throwing an exception. Otherwise, by default, block until a session becomes available. | No | `false`
+| `spring.cloud.gcp.spanner.emulator.enabled` |  Enables the usage of an emulator. If this is set to true, then you should set the `spring.cloud.gcp.spanner.emulator-host` to the host:port of your locally running emulator instance. | No | `false`
+| `spring.cloud.gcp.spanner.emulator-host` |  The host and port of the Spanner emulator; can be overridden to specify connecting to an already-running https://cloud.google.com/spanner/docs/emulator#installing_and_running_the_emulator[Spanner emulator] instance. | No | `localhost:9010`
 |===
 
 ==== Repository settings
@@ -208,7 +210,7 @@ public class Trade {
 
 	private String action;
 
-	private Double price;
+	private BigDecimal price;
 
 	private Double shares;
 
@@ -227,7 +229,7 @@ CREATE TABLE trades (
     trade_id STRING(MAX),
     action STRING(15),
     symbol STRING(10),
-    price FLOAT64,
+    price NUMERIC,
     shares FLOAT64
 ) PRIMARY KEY (trader_id, trade_id)
 ----
@@ -357,7 +359,7 @@ class Album {
 
 These classes can correspond to an existing pair of interleaved tables.
 The `@Interleaved` annotation may be applied to `Collection` properties and the inner type is resolved as the child entity type.
-The schema needed to create them can also be generated using the `SpannerSchemaUtils` and executed using the `SpannerDatabaseAdminTemplate`:
+The schema needed to create them can also be generated using the `SpannerSchemaUtils` and run by using the `SpannerDatabaseAdminTemplate`:
 
 [source,java]
 ----
@@ -467,7 +469,7 @@ Natively supported types:
 * `long[]`
 * `boolean[]`
 * `java.util.Date`
-* `java.util.Instant`
+* `java.time.Instant`
 * `java.sql.Date`
 * `java.time.LocalDate`
 * `java.time.LocalDateTime`
@@ -651,7 +653,7 @@ SpannerQueryOptions
 
 Cloud Spanner has SQL support for running read-only queries.
 All the query related methods start with `query` on `SpannerTemplate`.
-Using `SpannerTemplate` you can execute SQL queries that map to POJOs:
+By using `SpannerTemplate`, you can run SQL queries that map to POJOs:
 
 [source,java]
 ----
@@ -662,7 +664,7 @@ List<Trade> trades = this.spannerTemplate.query(Trade.class, Statement.of("SELEC
 
 Spanner exposes a https://cloud.google.com/spanner/docs/reads[Read API] for reading single row or multiple rows in a table or in a secondary index.
 
-Using `SpannerTemplate` you can execute reads, for example:
+Using `SpannerTemplate` you can run reads, as the following example shows:
 
 [source,java]
 ----
@@ -728,7 +730,7 @@ SpannerQueryOptions spannerQueryOptions = new SpannerQueryOptions().setLimit(2).
 List<Trade> trades = this.spannerTemplate.query(Trade.class, Statement.of("SELECT * FROM trades"), spannerQueryOptions);
 ----
 
-Note that the above is equivalent of executing `SELECT * FROM trades LIMIT 2 OFFSET 3`.
+Note that the above is equivalent of running `SELECT * FROM trades LIMIT 2 OFFSET 3`.
 
 ===== Sorting
 
@@ -829,10 +831,10 @@ this.spannerTemplate.update(t, "symbol", "action");
 
 ==== DML
 
-DML statements can be executed using `SpannerOperations.executeDmlStatement`.
+DML statements can be run by using `SpannerOperations.executeDmlStatement`.
 Inserts, updates, and deletions can affect any number of rows and entities.
 
-You can execute https://cloud.google.com/spanner/docs/dml-partitioned[partitioned DML] updates by using the `executePartitionedDmlStatement` method.
+You can run https://cloud.google.com/spanner/docs/dml-partitioned[partitioned DML] updates by using the `executePartitionedDmlStatement` method.
 Partitioned DML queries have performance benefits but also have restrictions and cannot be used inside transactions.
 
 ==== Transactions
@@ -917,7 +919,7 @@ If a method annotated with `@Transactional` calls another method also annotated,
 ==== DML Statements
 
 `SpannerTemplate` supports https://cloud.google.com/spanner/docs/dml-tasks:[DML] `Statements`.
-DML statements can also be executed in transactions via `performReadWriteTransaction` or using the `@Transactional` annotation.
+DML statements can also be run in transactions by using `performReadWriteTransaction` or by using the `@Transactional` annotation.
 
 === Repositories
 
@@ -967,7 +969,7 @@ public class MyApplication {
 		t.symbol = stock;
 		t.action = action;
 		t.traderId = traderId;
-		t.price = 100.0;
+		t.price = new BigDecimal("100.0");
 		t.shares = 12345.6;
 		this.spannerTemplate.insert(t);
 
@@ -1126,7 +1128,7 @@ However, to ensure the correct sort order of the final result set, sort options 
 
 [source, java]
 ----
-	@Query("SELECT * FROM trades") 
+	@Query("SELECT * FROM trades")
 	List<Trade> fetchTrades(Pageable pageable);
 
 	@Query("SELECT * FROM trades ORDER BY price DESC LIMIT 1")
@@ -1160,8 +1162,8 @@ Your query method can also return non-entity types:
   	List<String> getFirstStringList(@Param("action") String action);
 ----
 
-DML statements can also be executed by query methods, but the only possible return value is a `long` representing the number of affected rows.
-The `dmlStatement` boolean setting must be set on `@Query` to indicate that the query method is executed as a DML statement.
+DML statements can also be run by query methods, but the only possible return value is a `long` representing the number of affected rows.
+The `dmlStatement` boolean setting must be set on `@Query` to indicate that the query method is run as a DML statement.
 
 [source, java]
 ----
@@ -1255,6 +1257,15 @@ If using custom SQL queries, you can further restrict the columns retrieved from
 
 Properties of projection types defined using SpEL use the fixed name `target` for the underlying domain object.
 As a result accessing underlying properties take the form `target.<property-name>`.
+
+==== Empty result handling in repository methods
+Java `java.util.Optional` can be used to indicate the potential absence of a return value.
+
+Alternatively, query methods can return the result without a wrapper.
+In that case the absence of a query result is indicated by returning `null`.
+Repository methods returning collections are guaranteed never to return `null` but rather the corresponding empty collection.
+
+NOTE: You can enable nullability checks. For more details please see https://docs.spring.io/spring/docs/current/spring-framework-reference/core.html#null-safety[Spring Framework’s nullability docs].
 
 ==== REST Repositories
 
@@ -1413,7 +1424,26 @@ Database administrative operations, such as creating tables using `SpannerDataba
 
 If you would like to configure every aspect of each connection (such as pool size and retry settings), you can supply a bean for `Supplier<DatabaseClient>`.
 
-=== Sample
 
+=== Cloud Spanner Emulator
+
+The https://cloud.google.com/sdk[Cloud SDK] provides a local, in-memory emulator for Cloud Spanner, which you can use to develop and test your application. As the emulator stores data only in memory, it will not persist data across runs. It is intended to help you use Cloud Spanner for local development and testing, not for production deployments.
+
+In order to set up and start the emulator, you can follow https://cloud.google.com/spanner/docs/emulator[these steps].
+
+This command can be used to create Cloud Spanner instances:
+
+----
+$ gcloud spanner instances create <instance-name> --config=emulator-config --description="<description>" --nodes=1
+----
+
+Once the Spanner emulator is running, ensure that the following properties are set in your `application.properties` of your Spring application:
+
+----
+spring.cloud.gcp.spanner.emulator.enabled=true
+spring.cloud.gcp.spanner.emulator-host=${EMULATOR_HOSTPORT}
+----
+
+=== Sample
 
 A https://github.com/spring-cloud/spring-cloud-gcp/tree/master/spring-cloud-gcp-samples/spring-cloud-gcp-data-spanner-sample[sample application] is available.

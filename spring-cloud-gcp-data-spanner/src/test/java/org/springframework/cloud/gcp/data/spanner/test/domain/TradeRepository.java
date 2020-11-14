@@ -20,6 +20,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
+import javax.annotation.Nonnull;
+
 import com.google.cloud.spanner.Key;
 import com.google.cloud.spanner.Struct;
 
@@ -27,15 +29,22 @@ import org.springframework.cloud.gcp.data.spanner.repository.SpannerRepository;
 import org.springframework.cloud.gcp.data.spanner.repository.query.Query;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.repository.query.Param;
+import org.springframework.lang.NonNull;
 
 /**
  * A repository for integration tests that holds many complex use cases.
  *
  * @author Chengyuan Zhao
  */
+
+@Nonnull
 public interface TradeRepository extends SpannerRepository<Trade, Key> {
 
 	List<Trade> findByTraderId(String traderId);
+
+	List<Trade> findByTraderId(String traderId, Pageable pageable);
+
+	List<Trade> findTop2ByTraderIdOrderByTradeTimeAsc(String traderId, Pageable pageable);
 
 	int countByAction(String action);
 
@@ -49,6 +58,9 @@ public interface TradeRepository extends SpannerRepository<Trade, Key> {
 
 	@Query("SELECT * FROM :org.springframework.cloud.gcp.data.spanner.test.domain.Trade: WHERE id = @id")
 	Optional<Trade> fetchById(@Param("id") String id);
+
+	@Query("SELECT symbol FROM :org.springframework.cloud.gcp.data.spanner.test.domain.Trade: WHERE id = @id")
+	Optional<String> fetchSymbolById(@Param("id") String id);
 
 	@Query(dmlStatement = true, value = "UPDATE :org.springframework.cloud.gcp.data.spanner.test.domain.Trade:" +
 			" set action = @action WHERE id = @id")
@@ -112,4 +124,7 @@ public interface TradeRepository extends SpannerRepository<Trade, Key> {
 	long countWithInQuery(@Param("actions") List<String> actions);
 
 	List<Trade> findByActionIn(Set<String> action);
+
+	@NonNull
+	Trade getByAction(String s);
 }

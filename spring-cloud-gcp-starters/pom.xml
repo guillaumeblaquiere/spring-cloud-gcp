@@ -6,7 +6,7 @@
 	<parent>
 		<artifactId>spring-cloud-gcp</artifactId>
 		<groupId>org.springframework.cloud</groupId>
-		<version>1.2.3.BUILD-SNAPSHOT</version>
+		<version>1.2.7.BUILD-SNAPSHOT</version>
 	</parent>
 	<packaging>pom</packaging>
 	<name>Spring Cloud GCP Starters</name>
@@ -31,6 +31,7 @@
 		<module>spring-cloud-gcp-starter-firestore</module>
 		<module>spring-cloud-gcp-starter-trace</module>
 		<module>spring-cloud-gcp-starter-logging</module>
+		<module>spring-cloud-gcp-starter-metrics</module>
 		<module>spring-cloud-gcp-starter-sql-mysql</module>
 		<module>spring-cloud-gcp-starter-sql-postgresql</module>
 		<module>spring-cloud-gcp-starter-security-iap</module>

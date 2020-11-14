@@ -26,11 +26,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import com.google.cloud.datastore.Blob;
 import com.google.cloud.datastore.DatastoreException;
 import com.google.cloud.datastore.DatastoreReaderWriter;
+import com.google.cloud.datastore.EntityQuery;
 import com.google.cloud.datastore.Key;
+import com.google.cloud.datastore.ProjectionEntityQuery;
+import com.google.cloud.datastore.StructuredQuery;
+import com.google.cloud.datastore.StructuredQuery.PropertyFilter;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -40,16 +45,22 @@ import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.cloud.gcp.data.datastore.core.DatastoreTemplate;
 import org.springframework.cloud.gcp.data.datastore.core.mapping.DatastoreDataException;
+import org.springframework.cloud.gcp.data.datastore.core.mapping.DatastoreMappingContext;
+import org.springframework.cloud.gcp.data.datastore.core.mapping.DatastorePersistentEntity;
 import org.springframework.cloud.gcp.data.datastore.core.mapping.Descendants;
 import org.springframework.cloud.gcp.data.datastore.core.mapping.DiscriminatorField;
 import org.springframework.cloud.gcp.data.datastore.core.mapping.DiscriminatorValue;
 import org.springframework.cloud.gcp.data.datastore.core.mapping.Entity;
 import org.springframework.cloud.gcp.data.datastore.core.mapping.Unindexed;
+import org.springframework.cloud.gcp.data.datastore.entities.CustomMap;
+import org.springframework.cloud.gcp.data.datastore.entities.ServiceConfiguration;
 import org.springframework.cloud.gcp.data.datastore.it.TestEntity.Shape;
 import org.springframework.cloud.gcp.data.datastore.repository.DatastoreRepository;
 import org.springframework.cloud.gcp.data.datastore.repository.query.Query;
+import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.Reference;
 import org.springframework.data.domain.Example;
@@ -67,6 +78,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assume.assumeThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
 
 /**
  * Integration tests for Datastore that use many features.
@@ -91,8 +106,11 @@ public class DatastoreIntegrationTests extends AbstractDatastoreIntegrationTests
 	@Autowired
 	private DogRepository dogRepository;
 
-	@Autowired
+	@SpyBean
 	private DatastoreTemplate datastoreTemplate;
+
+	@Autowired
+	private DatastoreMappingContext mappingContext;
 
 	@Autowired
 	private TransactionalTemplateService transactionalTemplateService;
@@ -107,9 +125,9 @@ public class DatastoreIntegrationTests extends AbstractDatastoreIntegrationTests
 
 	private final TestEntity testEntityB = new TestEntity(2L, "blue", 2L, Shape.CIRCLE, null);
 
-	private final TestEntity testEntityC = new TestEntity(3L, "red", 1L, Shape.CIRCLE, null);
+	private final TestEntity testEntityC = new TestEntity(3L, "red", 1L, Shape.CIRCLE, null, new EmbeddedEntity("c"));
 
-	private final TestEntity testEntityD = new TestEntity(4L, "red", 1L, Shape.SQUARE, null);
+	private final TestEntity testEntityD = new TestEntity(4L, "red", 1L, Shape.SQUARE, null, new EmbeddedEntity("d"));
 
 	private final List<TestEntity> allTestEntities;
 
@@ -162,8 +180,7 @@ public class DatastoreIntegrationTests extends AbstractDatastoreIntegrationTests
 	@Test
 	public void testFindByExample() {
 		assertThat(this.testEntityRepository
-				.findAll(Example.of(new TestEntity(null, "red", null, Shape.CIRCLE, null),
-						ExampleMatcher.matching().withIgnorePaths("id"))))
+				.findAll(Example.of(new TestEntity(null, "red", null, Shape.CIRCLE, null))))
 				.containsExactlyInAnyOrder(this.testEntityA, this.testEntityC);
 
 		assertThat(this.testEntityRepository
@@ -176,8 +193,7 @@ public class DatastoreIntegrationTests extends AbstractDatastoreIntegrationTests
 
 		Page<TestEntity> result1 = this.testEntityRepository
 				.findAll(
-						Example.of(new TestEntity(null, null, null, null, null),
-								ExampleMatcher.matching().withIgnorePaths("id")),
+						Example.of(new TestEntity(null, null, null, null, null)),
 						PageRequest.of(0, 2, Sort.by("size")));
 		assertThat(result1.getTotalElements()).isEqualTo(4);
 		assertThat(result1.getNumber()).isEqualTo(0);
@@ -188,8 +204,7 @@ public class DatastoreIntegrationTests extends AbstractDatastoreIntegrationTests
 
 		Page<TestEntity> result2 = this.testEntityRepository
 				.findAll(
-						Example.of(new TestEntity(null, null, null, null, null),
-								ExampleMatcher.matching().withIgnorePaths("id")),
+						Example.of(new TestEntity(null, null, null, null, null)),
 						result1.getPageable().next());
 		assertThat(result2.getTotalElements()).isEqualTo(4);
 		assertThat(result2.getNumber()).isEqualTo(1);
@@ -200,19 +215,18 @@ public class DatastoreIntegrationTests extends AbstractDatastoreIntegrationTests
 
 		assertThat(this.testEntityRepository
 				.findAll(
-						Example.of(new TestEntity(null, null, null, null, null),
-								ExampleMatcher.matching().withIgnorePaths("id")),
+						Example.of(new TestEntity(null, null, null, null, null)),
 						Sort.by(Sort.Direction.ASC, "size")))
 				.containsExactly(this.testEntityA, this.testEntityB, this.testEntityC, this.testEntityD);
 
 		assertThat(this.testEntityRepository
 				.count(Example.of(new TestEntity(null, "red", null, Shape.CIRCLE, null),
-						ExampleMatcher.matching().withIgnorePaths("id", "size", "blobField"))))
+						ExampleMatcher.matching().withIgnorePaths("size", "blobField"))))
 				.isEqualTo(2);
 
 		assertThat(this.testEntityRepository
 				.exists(Example.of(new TestEntity(null, "red", null, Shape.CIRCLE, null),
-						ExampleMatcher.matching().withIgnorePaths("id", "size", "blobField"))))
+						ExampleMatcher.matching().withIgnorePaths("size", "blobField"))))
 				.isEqualTo(true);
 
 		assertThat(this.testEntityRepository
@@ -221,8 +235,7 @@ public class DatastoreIntegrationTests extends AbstractDatastoreIntegrationTests
 				.isEqualTo(false);
 
 		assertThat(this.testEntityRepository
-				.exists(Example.of(new TestEntity(null, "red", null, null, null),
-						ExampleMatcher.matching().withIgnorePaths("id"))))
+				.exists(Example.of(new TestEntity(null, "red", null, null, null))))
 				.isEqualTo(true);
 	}
 
@@ -251,6 +264,32 @@ public class DatastoreIntegrationTests extends AbstractDatastoreIntegrationTests
 		results.addAll(slice.getContent());
 
 		assertThat(results).containsExactlyInAnyOrder(this.testEntityA, this.testEntityC, this.testEntityD);
+	}
+
+	@Test
+	public void testNextPageAwareQuery() {
+		DatastorePersistentEntity<?> persistentEntity =
+				this.mappingContext.getPersistentEntity(TestEntity.class);
+
+		EntityQuery query = StructuredQuery.newEntityQueryBuilder().setKind(persistentEntity.kindName())
+				.setFilter(PropertyFilter.eq("color", "red"))
+				.setLimit(2).build();
+
+		Slice<TestEntity> results =
+				this.datastoreTemplate.queryEntitiesSlice(query, TestEntity.class, PageRequest.of(0, 2));
+
+		List<TestEntity> testEntities = new ArrayList<>();
+
+		testEntities.addAll(results.toList());
+		assertThat(results.hasNext()).isTrue();
+
+		results =
+				this.datastoreTemplate.queryEntitiesSlice(query, TestEntity.class, results.nextPageable());
+
+		testEntities.addAll(results.toList());
+
+		assertThat(results.hasNext()).isFalse();
+		assertThat(testEntities).contains(testEntityA, testEntityC, testEntityD);
 	}
 
 	@Test
@@ -318,9 +357,17 @@ public class DatastoreIntegrationTests extends AbstractDatastoreIntegrationTests
 
 	@Test
 	public void testSaveAndDeleteRepository() throws InterruptedException {
+		assertThat(this.testEntityRepository.findByEmbeddedEntityStringField("c")).containsExactly(this.testEntityC);
+		assertThat(this.testEntityRepository.findByEmbeddedEntityStringField("d")).containsExactly(this.testEntityD);
+
 		assertThat(this.testEntityRepository.findFirstByColor("blue")).contains(this.testEntityB);
 		assertThat(this.testEntityRepository.findFirstByColor("green")).isNotPresent();
+
 		assertThat(this.testEntityRepository.getByColor("green")).isNull();
+		assertThatThrownBy(() -> this.testEntityRepository.findByColor("green"))
+				.isInstanceOf(EmptyResultDataAccessException.class)
+				.hasMessageMatching("Result must not be null!");
+
 		assertThat(this.testEntityRepository.getByColor("blue")).isEqualTo(this.testEntityB);
 
 		assertThat(this.testEntityRepository.getByColorAndIdGreaterThanEqualOrderById("red", 3L))
@@ -463,6 +510,20 @@ public class DatastoreIntegrationTests extends AbstractDatastoreIntegrationTests
 		assertThat(this.testEntityRepository.count()).isEqualTo(0);
 
 		assertThat(this.testEntityRepository.findAllById(Arrays.asList(1L, 2L)).iterator().hasNext()).isFalse();
+	}
+
+	@Test
+	public void projectionTest() {
+		reset(datastoreTemplate);
+		assertThat(this.testEntityRepository.findBySize(2L).getColor()).isEqualTo("blue");
+
+		ProjectionEntityQuery projectionQuery =
+				com.google.cloud.datastore.Query.newProjectionEntityQueryBuilder()
+						.addProjection("color")
+						.setFilter(PropertyFilter.eq("size", 2L))
+						.setKind("test_entities_ci").setLimit(1).build();
+
+		verify(datastoreTemplate).queryKeysOrEntities(eq(projectionQuery), any());
 	}
 
 	@Test
@@ -767,6 +828,24 @@ public class DatastoreIntegrationTests extends AbstractDatastoreIntegrationTests
 	}
 
 	@Test
+	public void mapSubclass() {
+		CustomMap customMap1 = new CustomMap();
+		customMap1.put("key1", "val1");
+		ServiceConfiguration service1 = new ServiceConfiguration("service1", customMap1);
+		CustomMap customMap2 = new CustomMap();
+		customMap2.put("key2", "val2");
+		ServiceConfiguration service2 = new ServiceConfiguration("service2", customMap2);
+
+		this.datastoreTemplate.saveAll(Arrays.asList(service1, service2));
+
+		waitUntilTrue(() -> this.datastoreTemplate.count(ServiceConfiguration.class) == 2);
+
+		Collection<ServiceConfiguration> events = this.datastoreTemplate.findAll(ServiceConfiguration.class);
+
+		assertThat(events).containsExactlyInAnyOrder(service1, service2);
+	}
+
+	@Test
 	public void readOnlySaveTest() {
 		this.expectedException.expect(TransactionSystemException.class);
 		this.expectedException.expectMessage("Cloud Datastore transaction failed to commit.");
@@ -805,6 +884,7 @@ public class DatastoreIntegrationTests extends AbstractDatastoreIntegrationTests
 
 	@Test
 	public void testSlicedEntityProjections() {
+		reset(datastoreTemplate);
 		Slice<TestEntityProjection> testEntityProjectionSlice =
 				this.testEntityRepository.findBySize(2L, PageRequest.of(0, 1));
 
@@ -817,6 +897,14 @@ public class DatastoreIntegrationTests extends AbstractDatastoreIntegrationTests
 
 		// Verifies that the projection method call works.
 		assertThat(testEntityProjections.get(0).getColor()).isEqualTo("blue");
+
+		ProjectionEntityQuery projectionQuery =
+				com.google.cloud.datastore.Query.newProjectionEntityQueryBuilder()
+						.addProjection("color")
+						.setFilter(PropertyFilter.eq("size", 2L))
+						.setKind("test_entities_ci").setLimit(1).build();
+
+		verify(datastoreTemplate).queryKeysOrEntities(eq(projectionQuery), any());
 	}
 
 	@Test
@@ -863,6 +951,33 @@ public class DatastoreIntegrationTests extends AbstractDatastoreIntegrationTests
 			}
 			throw e;
 		}
+	}
+
+	@Test(timeout = 10000L)
+	public void testUnindex() {
+		SubEntity childSubEntity = new SubEntity();
+		childSubEntity.stringList = Collections.singletonList(generateString(1600));
+		childSubEntity.stringProperty = generateString(1600);
+		SubEntity parentSubEntity = new SubEntity();
+		parentSubEntity.embeddedSubEntities = Collections.singletonList(childSubEntity);
+		this.datastoreTemplate.save(parentSubEntity);
+	}
+
+	private String generateString(int length) {
+		return IntStream.range(0, length).mapToObj(String::valueOf)
+						.collect(Collectors.joining(","));
+	}
+
+	@Test
+	public void newFieldTest() {
+		Company company = new Company(1L, Collections.emptyList());
+		company.name = "name1";
+		this.datastoreTemplate.save(company);
+
+		CompanyWithBooleanPrimitive companyWithBooleanPrimitive =
+						this.datastoreTemplate.findById(1L, CompanyWithBooleanPrimitive.class);
+		assertThat(companyWithBooleanPrimitive.name).isEqualTo(company.name);
+		assertThat(companyWithBooleanPrimitive.active).isFalse();
 	}
 }
 
@@ -912,6 +1027,9 @@ class SubEntity {
 	List<String> stringList;
 
 	String stringProperty;
+
+	@Unindexed
+	List<SubEntity> embeddedSubEntities;
 }
 
 class PetOwner {
@@ -1018,7 +1136,7 @@ class Event {
 	}
 }
 
-@Entity
+@Entity(name = "company")
 class Company {
 	@Id
 	Long id;
@@ -1026,9 +1144,25 @@ class Company {
 	@Descendants
 	List<Employee> leaders;
 
+	String name;
+
 	Company(Long id, List<Employee> leaders) {
 		this.id = id;
 		this.leaders = leaders;
+	}
+}
+
+@Entity(name = "company")
+class CompanyWithBooleanPrimitive {
+	@Id
+	Long id;
+
+	String name;
+
+	boolean active;
+
+	CompanyWithBooleanPrimitive(Long id) {
+		this.id = id;
 	}
 }
 

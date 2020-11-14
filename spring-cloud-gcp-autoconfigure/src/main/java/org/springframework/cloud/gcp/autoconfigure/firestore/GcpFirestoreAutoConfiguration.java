@@ -53,7 +53,7 @@ import org.springframework.context.annotation.Configuration;
  *
  * @since 1.2
  */
-@Configuration
+@Configuration(proxyBeanMethods = false)
 @AutoConfigureAfter(GcpContextAutoConfiguration.class)
 @ConditionalOnProperty(value = "spring.cloud.gcp.firestore.enabled", matchIfMissing = true)
 @ConditionalOnClass({ Firestore.class })
@@ -138,9 +138,9 @@ public class GcpFirestoreAutoConfiguration {
 		@Bean
 		@ConditionalOnMissingBean
 		public FirestoreTemplate firestoreTemplate(FirestoreGrpc.FirestoreStub firestoreStub,
-				FirestoreClassMapper classMapper) {
+				FirestoreClassMapper classMapper, FirestoreMappingContext firestoreMappingContext) {
 			return new FirestoreTemplate(firestoreStub, GcpFirestoreAutoConfiguration.this.firestoreRootPath,
-					classMapper);
+					classMapper, firestoreMappingContext);
 		}
 
 		@Bean

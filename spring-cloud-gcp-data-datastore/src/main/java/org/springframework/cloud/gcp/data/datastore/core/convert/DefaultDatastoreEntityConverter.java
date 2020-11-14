@@ -16,6 +16,7 @@
 
 package org.springframework.cloud.gcp.data.datastore.core.convert;
 
+import java.lang.reflect.Constructor;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -43,6 +44,9 @@ import org.springframework.data.mapping.model.ParameterValueProvider;
 import org.springframework.data.mapping.model.PersistentEntityParameterValueProvider;
 import org.springframework.data.util.ClassTypeInformation;
 import org.springframework.data.util.TypeInformation;
+import org.springframework.util.Assert;
+
+import static org.springframework.cloud.gcp.data.datastore.core.mapping.EmbeddedType.NOT_EMBEDDED;
 
 /**
  * A class for object to entity and entity to object conversions.
@@ -78,22 +82,46 @@ public class DefaultDatastoreEntityConverter implements DatastoreEntityConverter
 	}
 
 	@Override
+	public <T, R> Map<T, R> readAsMap(BaseEntity entity, TypeInformation mapTypeInformation) {
+		Assert.notNull(mapTypeInformation, "mapTypeInformation can't be null");
+		if (entity == null) {
+			return null;
+		}
+		Map<T, R> result;
+		if (!mapTypeInformation.getType().isInterface()) {
+			try {
+				result = (Map<T, R>) ((Constructor<?>) mapTypeInformation.getType().getConstructor()).newInstance();
+			}
+			catch (Exception e) {
+				throw new DatastoreDataException("Unable to create an instance of a custom map type: "
+						+ mapTypeInformation.getType()
+						+ " (make sure the class is public and has a public no-args constructor)", e);
+			}
+		}
+		else {
+			result = new HashMap<>();
+		}
+
+		EntityPropertyValueProvider propertyValueProvider = new EntityPropertyValueProvider(
+				entity, this.conversions);
+		Set<String> fieldNames = entity.getNames();
+		for (String field : fieldNames) {
+			result.put(this.conversions.convertOnRead(field, NOT_EMBEDDED, mapTypeInformation.getComponentType()),
+					propertyValueProvider.getPropertyValue(field,
+							EmbeddedType.of(mapTypeInformation.getMapValueType()),
+							mapTypeInformation.getMapValueType()));
+		}
+		return result;
+	}
+
+	@Override
 	public <T, R> Map<T, R> readAsMap(Class<T> keyType, TypeInformation<R> componentType,
 			BaseEntity entity) {
 		if (entity == null) {
 			return null;
 		}
 		Map<T, R> result = new HashMap<>();
-		EntityPropertyValueProvider propertyValueProvider = new EntityPropertyValueProvider(
-				entity, this.conversions);
-		Set<String> fieldNames = entity.getNames();
-		for (String field : fieldNames) {
-			result.put(this.conversions.convertOnRead(field, null, keyType),
-					propertyValueProvider.getPropertyValue(field,
-							EmbeddedType.of(componentType),
-							componentType));
-		}
-		return result;
+		return readAsMap(entity, ClassTypeInformation.from(result.getClass()));
 	}
 
 	@Override
@@ -128,7 +156,9 @@ public class DefaultDatastoreEntityConverter implements DatastoreEntityConverter
 				if (!persistentEntity.isConstructorArgument(datastorePersistentProperty)) {
 					Object value = propertyValueProvider
 							.getPropertyValue(datastorePersistentProperty);
-					accessor.setProperty(datastorePersistentProperty, value);
+					if (value != null) {
+						accessor.setProperty(datastorePersistentProperty, value);
+					}
 				}
 			});
 		}
@@ -156,7 +186,7 @@ public class DefaultDatastoreEntityConverter implements DatastoreEntityConverter
 	private boolean isDiscriminationFieldMatch(DatastorePersistentEntity entity,
 			EntityPropertyValueProvider propertyValueProvider) {
 		return ((String[]) propertyValueProvider.getPropertyValue(entity.getDiscriminationFieldName(),
-				EmbeddedType.NOT_EMBEDDED,
+				NOT_EMBEDDED,
 				ClassTypeInformation.from(String[].class)))[0].equals(entity.getDiscriminatorValue());
 	}
 
@@ -199,17 +229,16 @@ public class DefaultDatastoreEntityConverter implements DatastoreEntityConverter
 	private Value setExcludeFromIndexes(Value convertedVal) {
 		// ListValues must have its contents individually excluded instead.
 		// the entire list must NOT be excluded or there will be an exception.
-		// Same for maps which are stored as EntityValue.
+		// Same for maps and embedded entities which are stored as EntityValue.
 		if (convertedVal.getClass().equals(EntityValue.class)) {
 			FullEntity.Builder<IncompleteKey> builder = FullEntity.newBuilder();
-			((EntityValue) convertedVal).get().getProperties().entrySet().stream().forEach(
-					stringValueEntry -> builder.set(stringValueEntry.getKey(), stringValueEntry.getValue().toBuilder().setExcludeFromIndexes(true).build())
-			);
+			((EntityValue) convertedVal).get().getProperties()
+							.forEach((key, value) -> builder.set(key, setExcludeFromIndexes(value)));
 			return EntityValue.of(builder.build());
 		}
 		else if (convertedVal.getClass().equals(ListValue.class)) {
-			return ListValue.of(((ListValue) convertedVal).get().stream()
-					.map(val -> val.toBuilder().setExcludeFromIndexes(true).build()).collect(Collectors.toList()));
+			return ListValue.of((List) ((ListValue) convertedVal).get().stream()
+							.map(this::setExcludeFromIndexes).collect(Collectors.toList()));
 		}
 		else {
 			return convertedVal.toBuilder().setExcludeFromIndexes(true).build();

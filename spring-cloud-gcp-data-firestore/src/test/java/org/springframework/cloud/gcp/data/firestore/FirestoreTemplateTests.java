@@ -16,18 +16,26 @@
 
 package org.springframework.cloud.gcp.data.firestore;
 
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
 import com.google.cloud.firestore.annotation.DocumentId;
+import com.google.firestore.v1.Document.Builder;
 import com.google.firestore.v1.DocumentMask;
 import com.google.firestore.v1.FirestoreGrpc.FirestoreStub;
 import com.google.firestore.v1.GetDocumentRequest;
+import com.google.firestore.v1.Precondition.ConditionTypeCase;
 import com.google.firestore.v1.RunQueryRequest;
 import com.google.firestore.v1.RunQueryResponse;
 import com.google.firestore.v1.StructuredQuery;
 import com.google.firestore.v1.Value;
+import com.google.firestore.v1.WriteRequest;
+import com.google.firestore.v1.WriteResponse;
+import com.google.protobuf.ByteString;
 import io.grpc.stub.StreamObserver;
 import org.junit.Before;
 import org.junit.Test;
@@ -36,7 +44,10 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import org.springframework.cloud.gcp.data.firestore.mapping.FirestoreDefaultClassMapper;
+import org.springframework.cloud.gcp.data.firestore.mapping.FirestoreMappingContext;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -59,7 +70,65 @@ public class FirestoreTemplateTests {
 	@Before
 	public void setup() {
 		this.firestoreTemplate = new FirestoreTemplate(this.firestoreStub, this.parent,
-				new FirestoreDefaultClassMapper());
+				new FirestoreDefaultClassMapper(), new FirestoreMappingContext());
+	}
+
+	@Test
+	public void excludeStreamTokensTest() {
+		firestoreTemplate.setUsingStreamTokens(false);
+
+		WriteResponse writeResponse =
+				WriteResponse.newBuilder()
+						.setStreamId("test-stream")
+						.setStreamToken(ByteString.copyFromUtf8("the-token"))
+						.build();
+
+		WriteRequest request = firestoreTemplate.buildWriteRequest(
+				Arrays.asList(new TestEntity("e1", 100L), new TestEntity(null, 10L)), writeResponse);
+
+		assertThat(request.getWrites(0).getCurrentDocument().getConditionTypeCase())
+						.isEqualTo(ConditionTypeCase.CONDITIONTYPE_NOT_SET);
+		assertThat(request.getWrites(1).getCurrentDocument().getConditionTypeCase())
+						.isEqualTo(ConditionTypeCase.EXISTS);
+		assertThat(request.getWrites(1).getCurrentDocument().getExists()).isFalse();
+		assertThat(request.getWrites(1).getUpdate().getName()).matches(".*/testEntities/[a-zA-Z0-9]{20}$");
+
+		assertThat(request.getStreamId()).isEmpty();
+		assertThat(request.getStreamToken().toStringUtf8()).isEmpty();
+
+		request = firestoreTemplate.buildDeleteRequest(Arrays.asList("hello"), writeResponse);
+		assertThat(request.getStreamId()).isEmpty();
+		assertThat(request.getStreamToken().toStringUtf8()).isEmpty();
+	}
+
+	@Test
+	public void includeStreamTokensTest() {
+		WriteResponse writeResponse =
+				WriteResponse.newBuilder()
+						.setStreamId("test-stream")
+						.setStreamToken(ByteString.copyFromUtf8("the-token"))
+						.build();
+
+		WriteRequest request = firestoreTemplate.buildWriteRequest(
+				Arrays.asList(new TestEntity("e1", 100L)), writeResponse);
+		assertThat(request.getStreamId()).isEqualTo("test-stream");
+		assertThat(request.getStreamToken().toStringUtf8()).isEqualTo("the-token");
+
+		request = firestoreTemplate.buildDeleteRequest(Arrays.asList("hello"), writeResponse);
+		assertThat(request.getStreamId()).isEqualTo("test-stream");
+		assertThat(request.getStreamToken().toStringUtf8()).isEqualTo("the-token");
+	}
+
+	@Test
+	public void testIntegerId() {
+
+		assertThatThrownBy(() -> {
+			List<TestEntityIntegerId> entities =
+							Collections.singletonList(new TestEntityIntegerId(1, "abc"));
+			firestoreTemplate.buildWriteRequest(entities, WriteResponse.newBuilder().build());
+		})
+						.isInstanceOf(FirestoreDataException.class)
+						.hasMessageContaining("An ID property is expected to be of String type; was class java.lang.Integer");
 	}
 
 	@Test
@@ -305,7 +374,11 @@ public class FirestoreTemplateTests {
 	}
 
 	public static com.google.firestore.v1.Document buildDocument(String name, long l) {
-		return com.google.firestore.v1.Document.newBuilder().setName(parent + "/testEntities/" + name)
+		Builder documentBuilder = com.google.firestore.v1.Document.newBuilder();
+		if (name != null) {
+			documentBuilder.setName(parent + "/testEntities/" + name);
+		}
+		return documentBuilder
 				.putAllFields(createValuesMap(name, l)).build();
 	}
 
@@ -370,6 +443,19 @@ public class FirestoreTemplateTests {
 		@Override
 		public int hashCode() {
 			return Objects.hash(getIdField(), getLongField());
+		}
+	}
+
+	@Document
+	class TestEntityIntegerId {
+		@DocumentId
+		public Integer id;
+
+		public String value;
+
+		TestEntityIntegerId(Integer id, String value) {
+			this.id = id;
+			this.value = value;
 		}
 	}
 }

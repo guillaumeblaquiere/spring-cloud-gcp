@@ -32,6 +32,7 @@ import com.google.cloud.datastore.Blob;
 import com.google.cloud.datastore.Datastore;
 import com.google.cloud.datastore.Entity;
 import com.google.cloud.datastore.EntityValue;
+import com.google.cloud.datastore.FullEntity;
 import com.google.cloud.datastore.Key;
 import com.google.cloud.datastore.LatLng;
 import com.google.cloud.datastore.ListValue;
@@ -51,12 +52,14 @@ import org.springframework.cloud.gcp.data.datastore.core.mapping.DatastoreDataEx
 import org.springframework.cloud.gcp.data.datastore.core.mapping.DatastoreMappingContext;
 import org.springframework.cloud.gcp.data.datastore.core.mapping.DiscriminatorField;
 import org.springframework.cloud.gcp.data.datastore.core.mapping.DiscriminatorValue;
+import org.springframework.cloud.gcp.data.datastore.entities.CustomMap;
 import org.springframework.core.convert.ConversionFailedException;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.data.annotation.Id;
 import org.springframework.lang.Nullable;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Tests for the entity converter.
@@ -239,7 +242,7 @@ public class DefaultDatastoreEntityConverterTests {
 		this.thrown.expectMessage("Unable to read property boolField");
 		this.thrown.expectMessage(
 				"Unable to convert class " +
-				"com.google.common.collect.RegularImmutableList to class java.lang.Boolean");
+				"com.google.common.collect.SingletonImmutableList to class java.lang.Boolean");
 
 		Entity entity = getEntityBuilder()
 				.set("stringField", "string value")
@@ -611,9 +614,14 @@ public class DefaultDatastoreEntityConverterTests {
 		item.setUnindexedField(2L);
 		item.setUnindexedStringListField(Arrays.asList("a", "b"));
 		item.setUnindexedMapField(new MapBuilder<String, String>().put("c", "C").put("d", "D").build());
+		item.setEmbeddedItem(new UnindexedTestDatastoreItem(2, new UnindexedTestDatastoreItem(3, null)));
+		item.setUnindexedItems(Collections.singletonList(new UnindexedTestDatastoreItem(4, new UnindexedTestDatastoreItem(5, null))));
 
+		DatastoreEntityConverter entityConverter = new DefaultDatastoreEntityConverter(
+						new DatastoreMappingContext(),
+						new DatastoreServiceObjectToKeyFactory(() -> this.datastore));
 		Entity.Builder builder = getEntityBuilder();
-		ENTITY_CONVERTER.write(item, builder);
+		entityConverter.write(item, builder);
 		Entity entity = builder.build();
 
 		assertThat(entity.getLong("indexedField")).as("validate indexed field value")
@@ -640,6 +648,20 @@ public class DefaultDatastoreEntityConverterTests {
 				.isTrue();
 		assertThat(((EntityValue) entity.getValue("unindexedMapField")).get().getValue("d").excludeFromIndexes())
 				.isTrue();
+
+		//Multi-level embedded entities - exclusion from indexes
+		testMultiLevelEmbeddedEntityUnindexed(((EntityValue) entity.getValue("embeddedItem")).get());
+		//Multi-level embedded entities in a list - exclusion from indexes
+		testMultiLevelEmbeddedEntityUnindexed(
+						((EntityValue) (
+										(ListValue) entity.getValue("unindexedItems")).get().get(0)
+						).get());
+	}
+
+	private void testMultiLevelEmbeddedEntityUnindexed(FullEntity entity) {
+		assertThat(entity.getValue("indexedField").excludeFromIndexes()).isTrue();
+		assertThat(((EntityValue) entity.getValue("embeddedItem"))
+						.get().getValue("indexedField").excludeFromIndexes()).isTrue();
 	}
 
 	@Test
@@ -675,10 +697,13 @@ public class DefaultDatastoreEntityConverterTests {
 		enumKeysMap.put(TestDatastoreItem.Color.BLACK, "black");
 		enumKeysMap.put(TestDatastoreItem.Color.WHITE, "white");
 
+		CustomMap customMap = new CustomMap();
+		customMap.put("key1", "val1");
+
 		TestItemWithEmbeddedEntity item = new TestItemWithEmbeddedEntity(123,
 				new EmbeddedEntity("abc"), embeddedEntities, mapSimpleValues,
 				mapListValues, embeddedEntityMapEmbeddedEntity,
-				embeddedEntityMapListOfEmbeddedEntities, enumKeysMap);
+				embeddedEntityMapListOfEmbeddedEntities, enumKeysMap, customMap);
 
 		item.setNestedEmbeddedMaps(nestedEmbeddedMap);
 
@@ -739,7 +764,31 @@ public class DefaultDatastoreEntityConverterTests {
 		assertThat(read.getNestedEmbeddedMaps().get("outer1").get(1L).get("a")).isEqualTo("valueA");
 		assertThat(read.getNestedEmbeddedMaps().get("outer1").get(1L).get("b")).isEqualTo("valueB");
 
+		assertThat(entity.getEntity("customMap").getString("key1"))
+				.isEqualTo("val1");
+
 		assertThat(read).as("read objects equals the original one").isEqualTo(item);
+	}
+
+	@Test
+	public void PrivateCustomMapExceptionTest() {
+		ServiceConfigurationPrivateCustomMap config =
+				new ServiceConfigurationPrivateCustomMap("a", new PrivateCustomMap());
+		DatastoreEntityConverter entityConverter = new DefaultDatastoreEntityConverter(
+				new DatastoreMappingContext(),
+				new DatastoreServiceObjectToKeyFactory(() -> this.datastore));
+
+		Entity.Builder builder = getEntityBuilder();
+		entityConverter.write(config, builder);
+		Entity entity = builder.build();
+
+		assertThatThrownBy(() -> {
+			entityConverter.read(ServiceConfigurationPrivateCustomMap.class, entity);
+		}).isInstanceOf(DatastoreDataException.class).hasMessageContaining(
+				"Unable to create an instance of a custom map type: "
+						+ "class org.springframework.cloud.gcp.data.datastore.core.convert."
+						+ "DefaultDatastoreEntityConverterTests$PrivateCustomMap "
+						+ "(make sure the class is public and has a public no-args constructor)");
 	}
 
 	@Test
@@ -831,4 +880,21 @@ public class DefaultDatastoreEntityConverterTests {
 	private static class DiscrimEntityC extends DiscrimEntityY {
 		int intField;
 	}
+
+	@org.springframework.cloud.gcp.data.datastore.core.mapping.Entity
+	public class ServiceConfigurationPrivateCustomMap {
+		@Id
+		private String serviceName;
+
+		private PrivateCustomMap customMap;
+
+		public ServiceConfigurationPrivateCustomMap(String serviceName, PrivateCustomMap customMap) {
+			this.serviceName = serviceName;
+			this.customMap = customMap;
+		}
+	}
+
+	private class PrivateCustomMap extends HashMap<String, Object> {
+	}
+
 }

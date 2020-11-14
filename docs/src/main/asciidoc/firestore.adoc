@@ -1,10 +1,10 @@
 :spring-data-commons-ref: https://docs.spring.io/spring-data/data-commons/docs/current/reference/html
 
-== Spring Data Reactive Repositories for Cloud Firestore
-NOTE: Currently some features are not supported: transactions, sorting, query by example, projections, auditing.
+== Spring Data Cloud Firestore
+NOTE: Currently some features are not supported: query by example, projections, and auditing.
 
 https://projects.spring.io/spring-data/[Spring Data] is an abstraction for storing and retrieving POJOs in numerous storage technologies.
-Spring Cloud GCP adds Spring Data support for https://cloud.google.com/firestore/[Google Cloud Firestore] in native mode, providing reactive template and repositories support.
+Spring Cloud GCP adds Spring Data Reactive Repositories support for https://cloud.google.com/firestore/[Google Cloud Firestore] in native mode, providing reactive template and repositories support.
 To begin using this library, add the `spring-cloud-gcp-data-firestore` artifact to your project.
 
 Maven coordinates for this module only, using <<getting-started.adoc#_bill_of_materials, Spring Cloud GCP BOM>>:
@@ -23,7 +23,7 @@ Gradle coordinates:
 [source]
 ----
 dependencies {
-  compile group: 'org.springframework.cloud', name: 'spring-cloud-gcp-data-firestore'
+  implementation("org.springframework.cloud:spring-cloud-gcp-data-firestore")
 }
 ----
 
@@ -42,7 +42,7 @@ Gradle coordinates:
 [source]
 ----
 dependencies {
-  compile group: 'org.springframework.cloud', name: 'spring-cloud-gcp-starter-data-firestore'
+  implementation("org.springframework.cloud:spring-cloud-gcp-starter-data-firestore")
 }
 ----
 
@@ -54,6 +54,8 @@ The Spring Boot starter for Google Cloud Firestore provides the following config
 | Name | Description | Required | Default value
 | `spring.cloud.gcp.firestore.enabled` | Enables or disables Firestore auto-configuration | No | `true`
 | `spring.cloud.gcp.firestore.project-id` | GCP project ID where the Google Cloud Firestore API is hosted, if different from the one in the <<spring-cloud-gcp-core,Spring Cloud GCP Core Module>> | No |
+| `spring.cloud.gcp.firestore.emulator.enabled` | Enables the usage of an emulator. If this is set to true, then you should set the `spring.cloud.gcp.firestore.host-port` to the host:port of your locally running emulator instance | No | `false`
+| `spring.cloud.gcp.firestore.host-port` | The host and port of the Firestore service; can be overridden to specify connecting to an already-running https://firebase.google.com/docs/emulator-suite/install_and_configure[Firestore emulator] instance. | No | `firestore.googleapis.com:443` (the host/port of official Firestore service)
 | `spring.cloud.gcp.firestore.credentials.location` | OAuth2 credentials for authenticating with the Google Cloud Firestore API, if different from the ones in the <<spring-cloud-gcp-core,Spring Cloud GCP Core Module>> | No |
 | `spring.cloud.gcp.firestore.credentials.encoded-key` | Base64-encoded OAuth2 credentials for authenticating with the Google Cloud Firestore API, if different from the ones in the <<spring-cloud-gcp-core,Spring Cloud GCP Core Module>> | No |
 | `spring.cloud.gcp.firestore.credentials.scopes` | https://developers.google.com/identity/protocols/googlescopes[OAuth2 scope] for Spring Cloud GCP Cloud Firestore credentials | No | https://www.googleapis.com/auth/datastore
@@ -101,26 +103,29 @@ Spring Data Cloud Firestore allows you to map domain POJOs to https://firebase.g
 import com.google.cloud.firestore.annotation.DocumentId;
 import org.springframework.cloud.gcp.data.firestore.Document;
 
-include::{project-root}/spring-cloud-gcp-data-firestore/src/test/java/org/springframework/cloud/gcp/data/firestore/User.java[tag=class_definition]
+include::{project-root}/spring-cloud-gcp-data-firestore/src/test/java/org/springframework/cloud/gcp/data/firestore/entities/User.java[tag=class_definition]
 ----
 
 `@Document(collectionName = "usersCollection")` annotation configures the collection name for the documents of this type.
 This annotation is optional, by default the collection name is derived from the class name.
 
-`@DocumentId` annotation marks a field to be used as document id. This annotation is required.
+`@DocumentId` annotation marks a field to be used as document id.
+This annotation is required and the annotated field can only be of `String` type.
+
+NOTE: If the property annotated with `@DocumentId` is `null` the document id is generated automatically when the entity is saved.
 
 NOTE: Internally we use Firestore client library object mapping. See https://developers.google.com/android/reference/com/google/firebase/firestore/package-summary[the documentation] for supported annotations.
 
 ==== Embedded entities and lists
-Spring Data Cloud Firestore supports embedded properties of custom types and lists. 
+Spring Data Cloud Firestore supports embedded properties of custom types and lists.
 Given a custom POJO definition, you can have properties of this type or lists of this type in your entities.
 They are stored as embedded documents (or arrays, correspondingly) in the Cloud Firestore.
 
-Example: 
+Example:
 
 [source,java,indent=0]
 ----
-include::{project-root}/spring-cloud-gcp-data-firestore/src/test/java/org/springframework/cloud/gcp/data/firestore/User.java[tag=embedded_class_collections]
+include::{project-root}/spring-cloud-gcp-data-firestore/src/test/java/org/springframework/cloud/gcp/data/firestore/entities/User.java[tag=embedded_class_collections]
 ----
 
 === Reactive Repositories
@@ -132,13 +137,15 @@ For example:
 [source,java]
 ----
 
-include::{project-root}/spring-cloud-gcp-data-firestore/src/test/java/org/springframework/cloud/gcp/data/firestore/it/UserRepository.java[tag=repository]
+include::{project-root}/spring-cloud-gcp-data-firestore/src/test/java/org/springframework/cloud/gcp/data/firestore/entities/UserRepository.java[tag=repository]
 
 ----
 
 Spring Data generates a working implementation of the specified interface, which can be autowired into an application.
 
 The `User` type parameter to `FirestoreReactiveRepository` refers to the underlying domain type.
+
+NOTE: You can refer to nested fields using https://docs.spring.io/spring-data/jpa/docs/current/reference/html/#repositories.query-methods.query-property-expressions[Spring Data JPA Property Expressions]
 
 [source,java]
 ----
@@ -155,6 +162,43 @@ Repositories allow you to define custom Query Methods (detailed in the following
 
 NOTE: Custom queries with `@Query` annotation are not supported since there is no query language in Cloud Firestore
 
+
+=== Firestore Operations & Template
+
+`FirestoreOperations` and its implementation, `FirestoreTemplate`, provides the Template pattern familiar to Spring developers.
+
+Using the auto-configuration provided by Spring Data Cloud Firestore, your Spring application context will contain a fully configured `FirestoreTemplate` object that you can autowire in your application:
+
+[source,java]
+----
+@SpringBootApplication
+public class FirestoreTemplateExample {
+
+	@Autowired
+	FirestoreOperations firestoreOperations;
+
+	public Mono<User> createUsers() {
+		return this.firestoreOperatons.save(new User("Alice", 29))
+			.then(this.firestoreOperatons.save(new User("Bob", 60)));
+	}
+
+	public Flux<User> findUsers() {
+		return this.firestoreOperatons.findAll(User.class);
+	}
+
+	public Mono<Long> removeAllUsers() {
+		return this.firestoreOperatons.deleteAll(User.class);
+	}
+}
+----
+
+The Template API provides support for:
+
+- Read and write operations
+- <<Transactions>>
+- <<Subcollections>> operations
+
+
 === Query methods by convention
 
 [source, java]
@@ -169,6 +213,7 @@ In the example above the query method implementations in `UserRepository` are ge
 Cloud Firestore only supports filter components joined by AND, and the following operations:
 
 * `equals`
+* `is not equal`
 * `greater than or equals`
 * `greater than`
 * `less than or equals`
@@ -176,6 +221,7 @@ Cloud Firestore only supports filter components joined by AND, and the following
 * `is null`
 * `contains` (accepts a `List` with up to 10 elements, or a singular value)
 * `in` (accepts a `List` with up to 10 elements)
+* `not in` (accepts a `List` with up to 10 elements)
 
 NOTE:  If `in` operation is used in combination with `contains` operation, the argument to `contains` operation has to be a singular value.
 
@@ -200,7 +246,7 @@ Note that you can switch between read-only and read-write transactions using `Tr
 include::{project-root}/spring-cloud-gcp-data-firestore/src/test/java/org/springframework/cloud/gcp/data/firestore/it/FirestoreRepositoryIntegrationTests.java[tag=repository_transactional_operator]
 ----
 
-When you have an instance of  `TransactionalOperator`, you can execute a sequence of Firestore operations in a transaction using `operator::transactional`:
+When you have an instance of  `TransactionalOperator`, you can invoke a sequence of Firestore operations in a transaction by using `operator::transactional`:
 
 [source, java, indent=0]
 ----
@@ -210,8 +256,8 @@ include::{project-root}/spring-cloud-gcp-data-firestore/src/test/java/org/spring
 NOTE: Read operations in a transaction can only happen before write operations.
 All write operations are applied atomically.
 Read documents are locked until the transaction finishes with a commit or a rollback, which are handled by Spring Data.
-If an `Exception` is thrown within a transaction, the rollback operation is executed.
-Otherwise, the commit operation is executed.
+If an `Exception` is thrown within a transaction, the rollback operation is performed.
+Otherwise, the commit operation is performed.
 
 ==== Declarative Transactions with @Transactional Annotation
 
@@ -247,13 +293,33 @@ include::{project-root}/spring-cloud-gcp-data-firestore/src/test/java/org/spring
 }
 ----
 
-Now when you call the methods annotated with `@Transactional` on your service object, a transaction will be automatically started. 
+Now when you call the methods annotated with `@Transactional` on your service object, a transaction will be automatically started.
 If an error occurs during the execution of a method annotated with `@Transactional`, the transaction will be rolled back. 
 If no error occurs, the transaction will be committed.
 
-=== Reactive Repository Sample
+==== Subcollections
+A subcollection is a collection associated with a specific entity.
+Documents in subcollections can contain subcollections as well, allowing you to further nest data. You can nest data up to 100 levels deep.
 
-A https://github.com/spring-cloud/spring-cloud-gcp/tree/master/spring-cloud-gcp-samples/spring-cloud-gcp-data-firestore-sample[sample application] is available.
+WARNING: Deleting a document does not delete its subcollections!
+
+To use subcollections you will need to create a `FirestoreReactiveOperations` object with a parent entity using `FirestoreReactiveOperations.withParent` call.
+You can use this object to save, query and remove entities associated with this parent.
+The parent doesn't have to exist in Firestore, but should have a non-empty id field.
+
+Autowire `FirestoreReactiveOperations`:
+[source,java,indent=0]
+----
+@Autowired
+FirestoreReactiveOperations firestoreTemplate;
+----
+
+Then you can use this object to create a `FirestoreReactiveOperations` object with a custom parent:
+[source,java,indent=0]
+----
+include::{project-root}/spring-cloud-gcp-data-firestore/src/test/java/org/springframework/cloud/gcp/data/firestore/it/FirestoreIntegrationTests.java[tag=subcollection]
+
+----
 
 === Cloud Firestore Spring Boot Starter
 
@@ -278,10 +344,9 @@ Gradle coordinates:
 [source]
 ----
 dependencies {
-  compile group: 'org.springframework.cloud', name: 'spring-cloud-gcp-starter-firestore'
+  implementation("org.springframework.cloud:spring-cloud-gcp-starter-firestore")
 }
 ----
-
 
 ==== Using Cloud Firestore
 
@@ -297,6 +362,26 @@ include::{project-root}/docs/src/test/java/org/springframework/cloud/gcp/sample/
 include::{project-root}/docs/src/test/java/org/springframework/cloud/gcp/sample/firestore/FirestoreDocumentationTests.java[tag=read]
 ----
 
-==== Sample
+=== Emulator Usage
 
-A https://github.com/spring-cloud/spring-cloud-gcp/tree/master/spring-cloud-gcp-samples/spring-cloud-gcp-firestore-sample[sample application] is available.
+The Google Cloud Firebase SDK provides a local, in-memory emulator for Cloud Firestore, which you can use to develop and test your application.
+
+First follow https://firebase.google.com/docs/emulator-suite/install_and_configure[the Firebase emulator installation steps] to install, configure, and run the emulator.
+
+NOTE: By default, the emulator is configured to run on port 8080; you will need to ensure that the emulator does not run on the same port as your Spring application.
+
+Once the Firestore emulator is running, ensure that the following properties are set in your `application.properties` of your Spring application:
+
+----
+spring.cloud.gcp.firestore.emulator.enabled=true
+spring.cloud.gcp.firestore.host-port=${EMULATOR_HOSTPORT}
+----
+
+From this point onward, your application will connect to your locally running emulator instance instead of the real Firestore service.
+
+=== Samples
+
+Spring Cloud GCP provides Firestore sample applications to demonstrate API usage:
+
+- https://github.com/spring-cloud/spring-cloud-gcp/tree/master/spring-cloud-gcp-samples/spring-cloud-gcp-data-firestore-sample[Reactive Firestore Repository sample application]:
+- https://github.com/spring-cloud/spring-cloud-gcp/tree/master/spring-cloud-gcp-samples/spring-cloud-gcp-firestore-sample[Firestore Client Library sample application]
